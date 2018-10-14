@@ -17,13 +17,18 @@ class RigidBody:
         self.gravity = 0
         self.label = "Nothing"
 
-    def separate_from_other(self, other, speed):
+    def separate_from_other(self, other):
         if self.rect.colliderect(other.rect):
-            if speed[1] != 0:
-                if speed[1] > 0: self.rect.bottom = other.rect.top
+            width = other.rect.width+self.rect.width
+            height = other.rect.height+self.rect.height
+            delta = float(height)/float(width)
+            distance_h = other.rect.centerx-self.rect.centerx
+            distance_v = other.rect.centery-self.rect.centery
+            if abs(distance_v) > (abs(distance_h)*delta-2):
+                if distance_v > 0: self.rect.bottom = other.rect.top
                 else: self.rect.top = other.rect.bottom
-            if speed[0] != 0:
-                if speed[0] > 0: self.rect.right = other.rect.left
+            else:
+                if distance_h > 0: self.rect.right = other.rect.left
                 else: self.rect.left = other.rect.right
             return True
         return False
@@ -71,22 +76,21 @@ class Player(RigidBody):
     def is_colliding(self, object_list, speed):
         for objectA in object_list:
             if objectA.label == "Block":
-                if self.separate_from_other(objectA,(0,speed[1])):
+                if self.separate_from_other(objectA):
                     self.speed[1] = 0
-                    if speed[1] > 0:
-                        self.speed[0] = self.speed[0]*0.8
-                self.separate_from_other(objectA,(speed[0],0))
 
     def move_and_collide(self, object_list, speed):
         self.add_speed((0,speed[1]))
-        self.is_colliding(object_list,(0,speed[1]))
         self.add_speed((speed[0],0))
         self.is_colliding(object_list,(speed[0],0))
 
     def update(self, object_list):
         keyboard = pygame.key.get_pressed()
         walk_direction = keyboard[self.keymap["Right"]]-keyboard[self.keymap["Left"]]
-        if walk_direction != 0: self.speed[0] = self.walk_speed*walk_direction
+
+        # if walk_direction != 0:
+        self.speed[0] = self.walk_speed*walk_direction
+
         RigidBody.update(self, False)
         self.move_and_collide(object_list,(self.speed[0], self.speed[1]))
 
@@ -126,12 +130,12 @@ class Game:
         global room
         room = Room()
         room.add_object(Block((200,20),(10,150)))
-        room.add_object(Block((20,20),(10,130)))
+        room.add_object(Block((20,20),(20,140)))
 
         room.add_object(Player((150,10)))
 
         while True:
-            self.clock.tick(60)
+            self.clock.tick(30)
             surface.fill((150,150,150))
             for event in pygame.event.get():
                 if event.type == pygame.QUIT: pygame.quit(); sys.exit()
