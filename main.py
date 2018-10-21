@@ -4,10 +4,11 @@ from pygame.locals import *
 # Global Variables;
 SCREEN_WIDTH = 640
 SCREEN_HEIGHT = 480
-PIXEL_PER_METTER = 10
-FRICTION = 1.25
+PIXEL_PER_METER = 10
+FRICTION = 1.35
 GRAVITY = 9.8
-BOUNCY = 0.75
+BOUNCY = 0.65
+
 class RigidBody:
     def __init__(self, size, coords, mass=1):
         self.rect = pygame.Rect(coords[0], coords[1], size[0], size[1])
@@ -26,18 +27,18 @@ class RigidBody:
             distance_h = other.rect.centerx-self.last_position[0]
             distance_v = other.rect.centery-self.last_position[1]
             direction = "None"
-            if abs(distance_v) > (abs(distance_h)*delta):
+            if abs(distance_v) > (abs(distance_h)*delta-2):
                 if distance_v > 0: self.rect.bottom = other.rect.top; direction = "Down"
                 else: self.rect.top = other.rect.bottom; direction = "Up"
             else:
                 if distance_h > 0: self.rect.right = other.rect.left; direction = "Right"
                 else: self.rect.left = other.rect.right; direction = "Left"
-            return direction
+            return [direction, other]
         return False
 
     def get_speed_from_collide (self, speed, other):
-        delta_speed = (self.mass*speed[0]+other.mass*speed[1])/(self.mass+other.mass)
-        speed = (delta_speed+BOUNCY*(speed[0]-speed[1]))/2
+        delta_speed = (self.mass*speed[0]+other.mass*speed[1]+BOUNCY*(speed[0]-speed[1]))/(self.mass+other.mass)
+        speed = delta_speed
         return speed
 
     def set_gravity(self, speed):
@@ -53,13 +54,12 @@ class RigidBody:
             if objectA.label == type:
                 collide_data = self.separate_from_other(objectA)
                 if collide_data != False:
-
-                    if collide_data == "Down":
-                        self.speed[1] = self.get_speed_from_collide((objectA.speed[1], self.speed[1]), objectA)
+                    if collide_data[0] == "Down":
+                        self.speed[1] = self.get_speed_from_collide((self.speed[1],objectA.speed[1]), objectA)
                         self.speed[0] = self.speed[0]/FRICTION
 
-                    if collide_data == "Right" or collide_data == "Left":
-                        self.speed[0] = self.get_speed_from_collide((objectA.speed[0], self.speed[0]), objectA)
+                    if collide_data[0] == "Right" or collide_data[0] == "Left":
+                        self.speed[0] = self.get_speed_from_collide((self.speed[1],objectA.speed[0]), objectA)
                     collision.append(collide_data)
         return collision
 
@@ -74,19 +74,18 @@ class RigidBody:
         pygame.draw.rect(surface,self.color_rect,self.rect)
 
     def update(self, is_moving=True):
-        self.speed[1]+=self.gravity/PIXEL_PER_METTER
+        self.speed[1]+=self.gravity/PIXEL_PER_METER
         if is_moving: self.add_speed((self.speed[0], self.speed[1]))
 
 class Block(RigidBody):
     def __init__(self, size, coords, mass=1000):
         RigidBody.__init__(self, size, coords, mass)
         self.color_rect = (20,20,20)
-        self.bouncy = 0.95
         self.label = "Block"
 
 class Box(Block):
     def __init__(self, coords):
-        Block.__init__(self, (20,20), coords, mass=10)
+        Block.__init__(self, (20,20), coords, mass=70)
         self.color_rect = (170,70,20)
         self.label = "Box"
         self.set_gravity(GRAVITY)
@@ -97,7 +96,7 @@ class Box(Block):
 
 class Player(RigidBody):
     def __init__(self, coords):
-        RigidBody.__init__(self, (16,32), coords, mass=10)
+        RigidBody.__init__(self, (16,32), coords, mass=20)
         self.keymap = {
             "Right" : pygame.K_RIGHT,
             "Left" : pygame.K_LEFT,
@@ -109,47 +108,64 @@ class Player(RigidBody):
         }
         self.set_gravity(GRAVITY)
         self.label = "Player"
-        self.walk_speed = 4
-        self.jump_speed = 8
-        self.speed[1] = 0
+        self.walk_speed = 3
+        self.jump_speed = 6
         self.timer = {
-            "Jump" : [0, 7]
+            "Jump" : [0, 10]
         }
         self.metadata = {
-            "Jump": False,
+            "CanJump": False,
             "Jumped": False
         }
 
     def basic_movements(self, keyboard):
         self.metadata["Jumped"] = False
-        walk_direction = keyboard[self.keymap["Right"]]-keyboard[self.keymap["Left"]]
-        if bool(keyboard[self.keymap["ButtonB"]]) and self.metadata["Jump"]:
+        if bool(keyboard[self.keymap["ButtonB"]]) and self.metadata["CanJump"]:
             if self.timer["Jump"][0] <= self.timer["Jump"][1]:
                 self.speed[1] = -self.jump_speed
                 self.timer["Jump"][0] += 1
             else:
-                self.metadata["Jump"] = False
+                self.metadata["CanJump"] = False
         else:
-            if self.metadata["Jump"]: self.metadata["Jumped"] = True
+            if self.metadata["CanJump"]: self.metadata["Jumped"] = True
             self.timer["Jump"][0] = 0
-        if self.metadata["Jumped"]:self.metadata["Jump"] = False
+        if self.metadata["Jumped"]: self.metadata["CanJump"] = False
+
+        walk_direction = keyboard[self.keymap["Right"]]-keyboard[self.keymap["Left"]]
         if walk_direction != 0: self.speed[0] = self.walk_speed*walk_direction
+
+    def events(self, object_list):
+        collide_data = self.move_and_collide(object_list,"Block",(self.speed[0], self.speed[1]))
+        for collision in collide_data:
+            if collision[0] == "Down": self.metadata["CanJump"] = True
+            if collision[0] == "Right" or collision[0] == "Left":
+                if abs(collision[1].rect.y-self.rect.y) <= 4:
+                    self.rect.y = collision[1].rect.y-5
+                    self.metadata["CanJump"] = True
+                    self.speed[1] = 0
+            if collision[0] == "Up": self.speed[1] = 0; self.metadata["CanJump"] = False
+
+        for objectA in object_list:
+            if objectA.label == "Box":
+                if self.rect.colliderect(objectA.rect):
+                    collide_data = self.separate_from_other(objectA)
+                    if collide_data != False:
+
+                        if collide_data[0] == "Down":
+                            self.speed[1] = self.get_speed_from_collide((self.speed[1],objectA.speed[1]), objectA)
+                            self.speed[0] = self.speed[0]/FRICTION
+                            self.metadata["CanJump"] = True
+
+                        if collide_data[0] == "Right" or collide_data[0] == "Left":
+                            objectA.speed[0] = objectA.get_speed_from_collide((objectA.speed[0],self.speed[0]), self)
+
 
     def update(self, object_list):
         keyboard = pygame.key.get_pressed()
         self.basic_movements(keyboard)
         RigidBody.update(self, False)
-        collision = self.move_and_collide(object_list,"Block",(self.speed[0], self.speed[1]))
-        for direction in collision:
-            if direction == "Down":
-                self.metadata["Jump"] = True
-        for other in object_list:
-            if other.label == "Box":
-                if self.rect.colliderect(other.rect):
-                    collide_data = self.separate_from_other(other)
-                    if collide_data != False:
-                        if collide_data == "Right" or collide_data == "Left":
-                            other.speed[0] = other.get_speed_from_collide((self.speed[0],other.speed[0]), other)
+        self.events(object_list)
+
 class Room:
     def __init__(self):
         self.canvas = pygame.Surface((640,480))
@@ -185,9 +201,15 @@ class Game:
     def game_loop(self, surface):
         global room
         room = Room()
-        room.add_object(Block((200,20),(10,150)))
-        room.add_object(Block((200,20),(150,400)))
-        room.add_object(Block((20,30),(20,130)))
+        room.add_object(Block((180,20),(10,150)))
+        room.add_object(Block((200,20),(150,390)))
+        x, y = 180,150
+        room.add_object(Block((20,20),(x,y)))
+        room.add_object(Block((20,20),(x,y+80)))
+        room.add_object(Block((20,20),(x+85,y+40)))
+        room.add_object(Block((20,20),(x,y+160)))
+        room.add_object(Block((20,20),(x+85,y+120)))
+
         room.add_object(Box((150,130)))
 
         room.add_object(Player((150,10)))
@@ -197,6 +219,21 @@ class Game:
             surface.fill((150,150,150))
             for event in pygame.event.get():
                 if event.type == pygame.QUIT: pygame.quit(); sys.exit()
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        room.object_list = []
+                        room.add_object(Block((180,20),(10,150)))
+                        room.add_object(Block((200,20),(150,390)))
+                        x, y = 180,150
+                        room.add_object(Block((20,20),(x,y)))
+                        room.add_object(Block((20,20),(x,y+80)))
+                        room.add_object(Block((20,20),(x+85,y+40)))
+                        room.add_object(Block((20,20),(x,y+160)))
+                        room.add_object(Block((20,20),(x+85,y+120)))
+
+                        room.add_object(Box((150,130)))
+
+                        room.add_object(Player((150,10)))
             room.room_update()
             self.game_draw(surface)
 
